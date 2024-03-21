@@ -121,9 +121,9 @@ class AddressField extends Field implements PreviewableFieldInterface
     /**
      * @inheritdoc
      */
-    public static function hasContentColumn(): bool
+    public static function icon(): string
     {
-        return false;
+        return 'location-dot';
     }
 
     // ========================================================================= //

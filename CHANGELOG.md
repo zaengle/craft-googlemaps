@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Added a fieldtype icon.
+
 ## 5.0.0-beta.1 - 2024-02-24
 
 ### Changed
