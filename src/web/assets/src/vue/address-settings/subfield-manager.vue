@@ -150,3 +150,9 @@ export default {
     }
 }
 </script>
+
+<style scoped>
+.disabled {
+    pointer-events: initial;
+}
+</style>

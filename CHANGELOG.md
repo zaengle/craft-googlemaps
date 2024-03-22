@@ -5,6 +5,9 @@
 ### Added
 - Added a fieldtype icon.
 
+### Fixed
+- Fixed drag & drop bug in subfield config manager.
+
 ## 5.0.0-beta.1 - 2024-02-24
 
 ### Changed
