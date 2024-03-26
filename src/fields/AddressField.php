@@ -15,20 +15,24 @@ use Craft;
 use craft\base\ElementInterface;
 use craft\base\Field;
 use craft\base\PreviewableFieldInterface;
+use craft\elements\db\ElementQuery;
 use craft\elements\db\ElementQueryInterface;
 use craft\elements\Entry;
+use craft\events\CancelableEvent;
+use craft\events\PopulateElementEvent;
 use craft\helpers\Json;
 use doublesecretagency\googlemaps\enums\Defaults;
 use doublesecretagency\googlemaps\GoogleMapsPlugin;
 use doublesecretagency\googlemaps\gql\types\Address as AddressType;
 use doublesecretagency\googlemaps\gql\types\input\AddressInput;
-use doublesecretagency\googlemaps\helpers\ProximitySearchHelper;
 use doublesecretagency\googlemaps\models\Address as AddressModel;
+use doublesecretagency\googlemaps\models\ProximitySearch;
 use doublesecretagency\googlemaps\records\Address as AddressRecord;
 use doublesecretagency\googlemaps\validators\AddressValidator;
 use doublesecretagency\googlemaps\web\assets\AddressFieldAsset;
 use doublesecretagency\googlemaps\web\assets\AddressFieldSettingsAsset;
 use GraphQL\Type\Definition\Type;
+use yii\base\Event;
 
 /**
  * Class AddressField
@@ -100,6 +104,22 @@ class AddressField extends Field implements PreviewableFieldInterface
     // ========================================================================= //
 
     /**
+     * Static configuration of a proximity search, if one is being carried out.
+     *
+     * @var array|null
+     */
+    public static ?array $proximitySearch = null;
+
+    /**
+     * Non-static configuration of a proximity search, if one is being carried out.
+     *
+     * @var array
+     */
+    public array $isProximitySearch = [];
+
+    // ========================================================================= //
+
+    /**
      * LEGACY: Properties required for Smart Map migration
      */
     public ?bool $dragPinDefault = null;
@@ -109,6 +129,15 @@ class AddressField extends Field implements PreviewableFieldInterface
     public ?array $layout = null;
 
     // ========================================================================= //
+
+    /**
+     * @inheritdoc
+     */
+    public function init(): void
+    {
+        // Register proximity search events
+        $this->_proximitySearchEvents();
+    }
 
     /**
      * @inheritdoc
@@ -191,7 +220,6 @@ class AddressField extends Field implements PreviewableFieldInterface
     public function normalizeValue(mixed $value, ?ElementInterface $element = null): ?AddressModel
     {
         /** @var Entry $element */
-
         // If the value is already an Address model, return it immediately
         if ($value instanceof AddressModel) {
             return $value;
@@ -293,10 +321,10 @@ class AddressField extends Field implements PreviewableFieldInterface
     /**
      * @inheritdoc
      */
-    public function getInputHtml(mixed $address, ?ElementInterface $element = null): string
+    public function getInputHtml(mixed $value, ?ElementInterface $element = null): string
     {
         // Whether the field has existing coordinates
-        $coordsExist = ($address instanceof AddressModel && $address->hasCoords());
+        $coordsExist = ($value instanceof AddressModel && $value->hasCoords());
 
         // Get extended settings
         $settings = $this->_getExtraSettings();
@@ -322,7 +350,7 @@ class AddressField extends Field implements PreviewableFieldInterface
                     'handle' => $this->handle,
                 ],
                 'settings' => $settings,
-                'data' => $this->_getAddressData($address),
+                'data' => $this->_getAddressData($value),
                 'images' => $this->_publishImages([
                     'iconOn' => 'marker.svg',
                     'iconOff' => 'marker-hollow.svg',
@@ -534,7 +562,7 @@ class AddressField extends Field implements PreviewableFieldInterface
         $directory = '@doublesecretagency/googlemaps/web/assets/dist';
 
         // Publish each image, and change each value to the published URL
-        array_walk($images, function (&$value) use ($assetManager, $directory) {
+        array_walk($images, static function (&$value) use ($assetManager, $directory) {
             $value = $assetManager->getPublishedUrl($directory, true, "images/{$value}");
         });
 
@@ -575,15 +603,77 @@ class AddressField extends Field implements PreviewableFieldInterface
     /**
      * @inheritdoc
      */
-    public function modifyElementsQuery(ElementQueryInterface $query, mixed $value): void
+    public static function queryCondition(array $instances, mixed $value, array &$params): array
     {
         // If options are not properly specified, bail
         if (!is_array($value)) {
-            return;
+            return [];
         }
 
-        // Modify the element query to perform a proximity search
-        ProximitySearchHelper::modifyElementsQuery($query, $value, $this);
+        // Get parameters of the proximity search
+        static::$proximitySearch = [
+            'field'   => ($instances[0] ?? null),
+            'options' => $value,
+        ];
+
+        // Don't (yet) modify the query
+        return [];
+    }
+
+    /**
+     * Events which handle a proximity search.
+     */
+    private function _proximitySearchEvents(): void
+    {
+        // After an element query has been prepared
+        Event::on(
+            ElementQuery::class,
+            ElementQuery::EVENT_AFTER_PREPARE,
+            function (CancelableEvent $event) {
+                /** @var ElementQueryInterface $query */
+                $query = $event->sender;
+
+                // If not a proximity search, bail
+                if (!static::$proximitySearch) {
+                    return;
+                }
+
+                // This is a proximity search
+                $this->isProximitySearch = static::$proximitySearch;
+
+                // Adjust query
+                new ProximitySearch([
+                    'query'   => $query,
+                    'field'   => static::$proximitySearch['field'],
+                    'options' => static::$proximitySearch['options'],
+                ]);
+
+                // Nullify search parameters
+                // (prevent duplicate execution)
+                static::$proximitySearch = null;
+            }
+        );
+        // Before each element is populated
+        Event::on(
+            ElementQuery::class,
+            ElementQuery::EVENT_BEFORE_POPULATE_ELEMENT,
+            function (PopulateElementEvent $event) {
+
+                // If not a proximity search, bail
+                if (!$this->isProximitySearch) {
+                    return;
+                }
+
+                // Get the field handle
+                $handle = ($this->isProximitySearch['field']->handle ?? null);
+
+                // Get distance from the SQL result
+                $distance = ($event->row[$handle] ?? null);
+
+                // Set distance to field value data
+                $event->row['fieldValues'][$handle] = $distance;
+            }
+        );
     }
 
     // ========================================================================= //

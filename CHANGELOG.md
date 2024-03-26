@@ -7,6 +7,7 @@
 
 ### Fixed
 - Fixed drag & drop bug in subfield config manager.
+- Fixed proximity search bug introduced in Craft 5 beta. ([#107](https://github.com/doublesecretagency/craft-googlemaps/issues/107))
 
 ## 5.0.0-beta.1 - 2024-02-24
 

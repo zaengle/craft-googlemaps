@@ -201,6 +201,7 @@ module.exports = {
                 'static-map-model',
                 'ipstack-model',
                 'maxmind-model',
+                'proximity-search-model',
                 'settings-model',
                 'coordinates',
             ],

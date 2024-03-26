@@ -12,7 +12,6 @@
 namespace doublesecretagency\googlemaps\models;
 
 use craft\base\Model;
-use doublesecretagency\googlemaps\helpers\ProximitySearchHelper;
 
 /**
  * Class Location
@@ -140,7 +139,7 @@ class Location extends Model
     private function _haversinePhp(array $pointA, array $pointB, string $units = 'mi'): float
     {
         // Determine radius
-        $radius = ProximitySearchHelper::haversineRadius($units);
+        $radius = ProximitySearch::haversineRadius($units);
 
         // Set coordinates
         $latA = (float) $pointA['lat'];

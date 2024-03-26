@@ -9,105 +9,129 @@
  * @copyright Copyright (c) 2014, 2021 Double Secret Agency
  */
 
-namespace doublesecretagency\googlemaps\helpers;
+namespace doublesecretagency\googlemaps\models;
 
 use Craft;
+use craft\base\Model;
+use craft\db\Connection;
 use craft\elements\db\ElementQueryInterface;
 use craft\fields\Number;
-use craft\helpers\ElementHelper;
 use doublesecretagency\googlemaps\enums\Defaults;
 use doublesecretagency\googlemaps\fields\AddressField;
-use yii\base\ExitException;
+use doublesecretagency\googlemaps\helpers\GeocodingHelper;
+use doublesecretagency\googlemaps\helpers\GoogleMaps;
 use yii\web\HttpException;
 
 /**
- * Class ProximitySearchHelper
- * @since 4.0.0
+ * Class ProximitySearch
+ * @since 5.0.0
  */
-class ProximitySearchHelper
+class ProximitySearch extends Model
 {
 
     /**
-     * @var ElementQueryInterface The actual element query (passed by reference) which is being called.
+     * @var int Default range of proximity search.
      */
-    private static ElementQueryInterface $_query;
+    private int $_defaultRange = 500;
 
     /**
-     * @var AddressField The field used to generate a proximity search. (aka "myAddressField")
+     * @var string Default units of proximity search.
      */
-    private static AddressField $_field;
+    private string $_defaultUnits = 'mi';
 
     /**
-     * @var array|string Optionally filter results by individual subfields.
+     * @var ElementQueryInterface|null Element query being adjusted to perform the proximity search.
      */
-    private static array|string $_subfieldFilter;
+    public ?ElementQueryInterface $query = null;
 
     /**
-     * Modify the existing elements query to perform a proximity search.
-     *
-     * @param ElementQueryInterface $query
-     * @param array $options
-     * @param AddressField $field
+     * @var AddressField|null Address field being queried in proximity search.
      */
-    public static function modifyElementsQuery(ElementQueryInterface $query, array $options, AddressField $field): void
+    public ?AddressField $field = null;
+
+    /**
+     * @var array|null Array of options for configuring the proximity search.
+     */
+    public ?array $options = null;
+
+    // ========================================================================= //
+
+    /**
+     * @inerhitdoc
+     * @throws HttpException
+     */
+    public function init(): void
     {
-        // Internalize objects
-        static::$_query = $query;
-        static::$_field = $field;
-        static::$_subfieldFilter = ($options['subfields'] ?? []);
+        // If no field or options, bail
+        if (!$this->field || !$this->options) {
+            return;
+        }
 
         // Join with plugin table
-        static::$_query->subQuery->leftJoin(
-            '{{%googlemaps_addresses}} addresses',
-            '[[addresses.elementId]] = [[elements.id]] AND [[addresses.fieldId]] = :fieldId',
-            [':fieldId' => $field->id]
+        $this->query->subQuery->innerJoin(
+            '{{%googlemaps_addresses}} gm_addresses',
+            '[[gm_addresses.elementId]] = [[elements.id]] AND [[gm_addresses.fieldId]] = :fieldId',
+            [':fieldId' => $this->field->id]
         );
 
-        // Filter by field ID
-        static::$_query->subQuery->andWhere(
-            '[[addresses.fieldId]] = :fieldId',
-            [':fieldId' => $field->id]
-        );
-
-        // Apply all proximity search options
-        static::_applyProximitySearch($options);
-
-        // Apply 'subfields' option
-        if (static::$_subfieldFilter) {
-            static::_applySubfields(static::$_subfieldFilter);
-        }
-
-        // Apply 'requireCoords' option
-        if (isset($options['requireCoords'])) {
-            static::_applyRequireCoords($options['requireCoords']);
-        }
+        // Apply each option
+        $this->_applyRange();
+        $this->_applyUnits();
+        $this->_applyTarget();
+        $this->_applySubfields();
+        $this->_applyRequireCoords();
+        $this->_applyReverseRadius();
     }
 
     // ========================================================================= //
 
     /**
-     * Conduct a target-based proximity search.
-     *
-     * @param array $options
+     * Apply the `range` option.
      */
-    private static function _applyProximitySearch(array $options): void
+    private function _applyRange(): void
     {
-        // Set proximity search defaults
-        $default = [
-            'range'  => 500,
-            'units'  => 'mi',
-        ];
+        // Get specified range
+        $range = ($this->options['range'] ?? $this->_defaultRange);
 
-        // Get default coordinates
-        $defaultCoords = Defaults::COORDINATES;
+        // Ensure range is valid
+        if (!is_numeric($range) || $range <= 0) {
+            $range = $this->_defaultRange;
+        }
 
+        // Update options array
+        $this->options['range'] = $range;
+    }
+
+    /**
+     * Apply the `units` option.
+     */
+    private function _applyUnits(): void
+    {
+        // Get specified units
+        $units = ($this->options['units'] ?? $this->_defaultUnits);
+
+        // Ensure units are valid
+        $validUnits = ['mi', 'km', 'miles', 'kilometers'];
+        if (!in_array($units, $validUnits, true)) {
+            $units = $this->_defaultUnits;
+        }
+
+        // Update options array
+        $this->options['units'] = $units;
+    }
+
+    /**
+     * Apply the `target` option.
+     */
+    private function _applyTarget(): void
+    {
         // Get specified target
-        $target = ($options['target'] ?? null);
+        $target = ($this->options['target'] ?? null);
 
         // If no target is specified
         if (!$target) {
             // Modify subquery, append empty distance column
-            static::$_query->subQuery->addSelect(
+            $this->query->subQuery->addSelect(
                 "NULL AS [[distance]]"
             );
             // Bail
@@ -115,116 +139,64 @@ class ProximitySearchHelper
         }
 
         // Retrieve the starting coordinates from the specified target
-        $coords = static::_getTargetCoords($target);
+        $coords = $this->_getTargetCoords($target);
 
         // If no coordinates, use default
         if (!$coords) {
-            $coords = $defaultCoords;
+            $coords = Defaults::COORDINATES;
         }
 
         // Get coordinates
-        $lat = ($coords['lat'] ?? $defaultCoords['lat']);
-        $lng = ($coords['lng'] ?? $defaultCoords['lng']);
-
-        // Get specified units
-        $units = ($options['units'] ?? $default['units']);
-
-        // Ensure units are valid
-        $validUnits = ['mi', 'km', 'miles', 'kilometers'];
-        if (!in_array($units, $validUnits, true)) {
-            $units = $default['units'];
-        }
-
-        // Get specified range
-        $range = ($options['range'] ?? $default['range']);
-
-        // Ensure range is valid
-        if (!is_numeric($range) || $range <= 0) {
-            $range = $default['range'];
-        }
+        $lat = ($coords['lat'] ?? Defaults::COORDINATES['lat']);
+        $lng = ($coords['lng'] ?? Defaults::COORDINATES['lng']);
 
         // Implement haversine formula via SQL
-        $haversine = static::_haversineSql($lat, $lng, $units);
+        $haversine = $this->_haversineSql($lat, $lng);
 
         // Modify subquery, sort by nearest
-        static::$_query->subQuery->addSelect(
+        $this->query->subQuery->addSelect(
             "{$haversine} AS [[distance]]"
         );
 
         // Briefly store the distance under the field handle
-        $fieldHandle = static::$_field->handle;
-        static::$_query->query->addSelect(
-            "[[subquery.distance]] AS [[{$fieldHandle}]]"
+        $this->query->query->addSelect(
+            "[[distance]] AS [[{$this->field->handle}]]"
         );
 
-        // Whether the database is MySQL
-        $isMySql = Craft::$app->getDb()->getIsMysql();
+        // Get the reverse radius
+        $reverseRadius = ($this->options['reverseRadius'] ?? null);
 
-        // Handle distance based on database type
-        if ($isMySql) {
+        // If applying a valid reverse radius, bail
+        if ($reverseRadius && is_string($reverseRadius)) {
+            return;
+        }
+
+        // Append distance column normally
+        if (Craft::$app->getDb()->getIsMysql()) {
             // Configure for MySQL
-            static::$_query->subQuery->having(
+            $this->query->subQuery->having(
                 '[[distance]] <= :range',
-                [':range' => $range]
+                [':range' => $this->options['range']]
             );
         } else {
             // Configure for Postgres
-            static::$_query->query->andWhere(
+            $this->query->subQuery->andWhere(
                 '[[distance]] <= :range',
-                [':range' => $range]
+                [':range' => $this->options['range']]
             );
         }
 
-        // Get reverse radius field handle
-        $reverseRadius = ($options['reverseRadius'] ?? null);
-
-        // If performing a reverse proximity search
-        if ($reverseRadius) {
-
-            // Get the reverse radius field
-            $field = Craft::$app->getFields()->getFieldByHandle($reverseRadius);
-
-            // If the field does not exist
-            if (!$field) {
-                // Throw an error
-                throw new HttpException(500, "The \"{$reverseRadius}\" field does not exist. Please specify a Number field for the `reverseRadius` option.");
-            }
-
-            // If not a Number field type
-            if (!is_a($field, Number::class)) {
-                // Get the actual field class
-                $actualClass = get_class($field);
-                // Throw an error
-                throw new HttpException(500, "The \"{$reverseRadius}\" field is a {$actualClass}. Please specify a Number field for the `reverseRadius` option.");
-            }
-
-            // Get name of content column
-            $column = ElementHelper::fieldColumnFromField($field);
-
-            // Filter by the reverse radius
-            if ($isMySql) {
-                // Configure for MySQL
-                static::$_query->query->andHaving(
-                    "[[distance]] <= [[{$column}]]"
-                );
-            } else {
-                // Configure for Postgres
-                static::$_query->query->andWhere(
-                    "[[distance]] <= [[{$column}]]"
-                );
-            }
-
-        }
     }
 
     /**
-     * Filter by contents of specific subfields.
-     *
-     * @param array|null $subfields
+     * Apply the `subfields` option.
      */
-    private static function _applySubfields(?array $subfields): void
+    private function _applySubfields(): void
     {
-        // If not an array, bail
+        // Get subfields
+        $subfields = ($this->options['subfields'] ?? []);
+
+        // If subfields are not an array, bail
         if (!is_array($subfields)) {
             return;
         }
@@ -262,35 +234,90 @@ class ProximitySearchHelper
             }
 
             // Re-organize WHERE filters
-            if (1 == count($where)) {
+            if (1 === count($where)) {
                 $where = $where[0];
             } else {
                 array_unshift($where, 'or');
             }
 
             // Append WHERE clause to subquery
-            static::$_query->subQuery->andWhere($where);
+            $this->query->subQuery->andWhere($where);
         }
     }
 
     /**
-     * Filter to only include Addresses which have valid coordinates.
-     *
-     * @param bool $requireCoords
+     * Apply the `requireCoords` option.
      */
-    private static function _applyRequireCoords(bool $requireCoords): void
+    private function _applyRequireCoords(): void
     {
-        // If coordinates are not required, bail
-        if (!$requireCoords) {
+        // If coordinates are required
+        if ($this->options['requireCoords'] ?? false) {
+
+            // Omit Addresses with missing or incomplete coordinates
+            $this->query->subQuery->andWhere(['not', [
+                'or',
+                ['lat' => null],
+                ['lng' => null]
+            ]]);
+
+        }
+    }
+
+    /**
+     * Apply the `reverseRadius` option.
+     *
+     * @throws HttpException
+     */
+    private function _applyReverseRadius(): void
+    {
+        // Get the reverse radius
+        $reverseRadius = ($this->options['reverseRadius'] ?? null);
+
+        // If not using a valid reverse radius, bail
+        if (!$reverseRadius || !is_string($reverseRadius)) {
             return;
         }
 
-        // Omit Addresses with missing or incomplete coordinates
-        static::$_query->subQuery->andWhere(['not', [
-            'or',
-            ['lat' => null],
-            ['lng' => null]
-        ]]);
+        // Get content column in the subquery
+        $this->query->subQuery->addSelect(
+            "[[elements_sites.content]]"
+        );
+
+        // Get reverse radius field UID
+        $layoutField = $this->field->layoutElement->getLayout()->getField($reverseRadius);
+
+        // Get the actual reverse field
+        $reverseField = $layoutField->getField();
+
+        // If not a Number field type
+        if (!is_a($reverseField, Number::class)) {
+            // Get the actual field class
+            $actualClass = get_class($reverseField);
+            // Throw an error
+            throw new HttpException(500, "The \"{$reverseRadius}\" field is a {$actualClass}. Please specify a Number field for the `reverseRadius` option.");
+        }
+
+        /** @var Connection $db */
+        $db = Craft::$app->getDb();
+        $qb = $db->getQueryBuilder();
+        $sql = $qb->jsonExtract('elements_sites.content', [$layoutField->uid]);
+
+        // Add reverse radius result to query
+        $this->query->subQuery->addSelect("{$sql} AS [[gm_reverseRadius]]");
+
+        // Filter by the reverse radius
+        if (Craft::$app->getDb()->getIsMysql()) {
+            // Configure for MySQL
+            $this->query->subQuery->andHaving(
+                "[[distance]] <= [[gm_reverseRadius]]"
+            );
+        } else {
+            // Configure for Postgres
+            $this->query->subQuery->andWhere(
+                "[[distance]] <= [[gm_reverseRadius]]"
+            );
+        }
+
     }
 
     // ========================================================================= //
@@ -303,33 +330,39 @@ class ProximitySearchHelper
      *
      * @param array|string|null $target
      * @return array|null Set of coordinates based on specified target.
-     * @throws ExitException
      */
-    private static function _lookupCoords(array|string|null $target): ?array
+    private function _lookupCoords(array|string|null $target): ?array
     {
         // Perform geocoding based on specified target
         $address = GoogleMaps::lookup($target)->one();
 
         // Get coordinates of specified target
-        $coords = ($address ? $address->getCoords() : null);
+        $coords = $address?->getCoords();
+
+        // Get subfields
+        $subfields = ($this->options['subfields'] ?? []);
 
         // If fallback filter is disabled, bail with coordinates
-        if ('fallback' !== static::$_subfieldFilter) {
+        if ('fallback' !== $subfields) {
             return $coords;
         }
 
+        /**
+         * Subfield Filter Fallback
+         */
+
         // If address contains a valid street address, bail with coordinates
-        if ($address->street1 ?? false) {
+        if ($address->street1 ?? null) {
             return $coords;
         }
 
         // If no raw address components exist, bail with coordinates
-        if (!($address->raw['address_components'] ?? false)) {
+        if (!($address->raw['address_components'] ?? null)) {
             return $coords;
         }
 
         // Determine type of address result
-        $type = ($address->raw['types'][0] ?? false);
+        $type = ($address->raw['types'][0] ?? null);
 
         // List of narrowly focused location types
         // will be exempt from the fallback filter
@@ -355,7 +388,7 @@ class ProximitySearchHelper
          */
 
         // If the location type is narrowly focused, bail with coordinates
-        if (in_array($type, $focusedTypes)) {
+        if (in_array($type, $focusedTypes, true)) {
             return $coords;
         }
 
@@ -377,7 +410,7 @@ class ProximitySearchHelper
 
         // Grossly simplify the target string
         $t = (is_string($target) ? $target : ($target['address'] ?? ''));
-        $t = trim(strtolower($t));
+        $t = strtolower(trim($t));
 
         // Prune unspecified subfields
         foreach ($filter as $subfield => $value) {
@@ -391,7 +424,7 @@ class ProximitySearchHelper
             }
 
             // Grossly simplify the filter value
-            $v = trim(strtolower($value));
+            $v = strtolower(trim($value));
 
             // If target and value are identical, filter by THIS PART ONLY!
             if ($t === $v) {
@@ -403,7 +436,7 @@ class ProximitySearchHelper
 
         // If subfield filter was properly configured, set it
         if ($filter) {
-            static::$_subfieldFilter = $filter;
+            $this->options['subfields'] = $filter;
         }
 
         // Return coordinates
@@ -418,7 +451,7 @@ class ProximitySearchHelper
      * @param array|string $target
      * @return array|null Set of coordinates to use as center of proximity search.
      */
-    private static function _getTargetCoords(array|string $target): ?array
+    private function _getTargetCoords(array|string $target): ?array
     {
         // Get coordinates based on type of target specified
         switch (gettype($target)) {
@@ -427,17 +460,17 @@ class ProximitySearchHelper
             case 'string':
 
                 // Return coordinates based on geocoding lookup
-                return static::_lookupCoords($target);
+                return $this->_lookupCoords($target);
 
             // Target specified as an array
             case 'array':
 
                 // If coordinates were specified directly, return them as-is
-                if (isset($target['lat']) && isset($target['lng'])) {
+                if (isset($target['lat'], $target['lng'])) {
                     return $target;
                 }
                 // Return coordinates based on geocoding lookup
-                return static::_lookupCoords($target);
+                return $this->_lookupCoords($target);
 
         }
 
@@ -445,27 +478,28 @@ class ProximitySearchHelper
         return Defaults::COORDINATES;
     }
 
+    // ========================================================================= //
+
     /**
      * Apply haversine formula via SQL.
      *
      * @param float $lat
      * @param float $lng
-     * @param string $units
      * @return string The haversine formula portion of an SQL query.
      */
-    private static function _haversineSql(float $lat, float $lng, string $units = 'mi'): string
+    private function _haversineSql(float $lat, float $lng): string
     {
         // Determine radius
-        $radius = static::haversineRadius($units);
+        $radius = self::haversineRadius($this->options['units'] ?? $this->_defaultUnits);
 
         // Calculate haversine formula
         return "(
             {$radius} * acos(
                 cos(radians({$lat})) *
-                cos(radians([[addresses.lat]])) *
-                cos(radians([[addresses.lng]]) - radians({$lng})) +
+                cos(radians([[gm_addresses.lat]])) *
+                cos(radians([[gm_addresses.lng]]) - radians({$lng})) +
                 sin(radians({$lat})) *
-                sin(radians([[addresses.lat]]))
+                sin(radians([[gm_addresses.lat]]))
             )
         )";
     }
@@ -478,15 +512,10 @@ class ProximitySearchHelper
      */
     public static function haversineRadius(string $units): int
     {
-        switch ($units) {
-            case 'km':
-            case 'kilometers':
-                return 6371;
-            case 'mi':
-            case 'miles':
-            default:
-                return 3959;
-        }
+        return match ($units) {
+            'km', 'kilometers' => 6371,
+            default => 3959, // miles
+        };
     }
 
 }
