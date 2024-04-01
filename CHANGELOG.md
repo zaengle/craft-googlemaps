@@ -14,7 +14,7 @@
 ### Changed
 - Craft 5 compatibility.
 
-## Unreleased
+## 4.5.1 - 2024-03-31
 
 ### Added
 - Added an [event](https://plugins.doublesecretagency.com/google-maps/address-field/event/) for plugins/modules to define search keywords. ([#108](https://github.com/doublesecretagency/craft-googlemaps/issues/108))
