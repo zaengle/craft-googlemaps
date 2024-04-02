@@ -30,11 +30,6 @@ class ProximitySearch extends Model
 {
 
     /**
-     * @var int Default range of proximity search.
-     */
-    private int $_defaultRange = 500;
-
-    /**
      * @var string Default units of proximity search.
      */
     private string $_defaultUnits = 'mi';
@@ -91,11 +86,11 @@ class ProximitySearch extends Model
     private function _applyRange(): void
     {
         // Get specified range
-        $range = ($this->options['range'] ?? $this->_defaultRange);
+        $range = ($this->options['range'] ?? null);
 
-        // Ensure range is valid
+        // If range is not valid, nullify it
         if (!is_numeric($range) || $range <= 0) {
-            $range = $this->_defaultRange;
+            $range = null;
         }
 
         // Update options array
@@ -171,19 +166,22 @@ class ProximitySearch extends Model
             return;
         }
 
-        // Append distance column normally
-        if (Craft::$app->getDb()->getIsMysql()) {
-            // Configure for MySQL
-            $this->query->subQuery->having(
-                '[[distance]] <= :range',
-                [':range' => $this->options['range']]
-            );
+        // If a range was specified
+        if ($this->options['range']) {
+            $condition = '[[distance]] <= :range';
+            $params = [':range' => $this->options['range']];
         } else {
-            // Configure for Postgres
-            $this->query->subQuery->andWhere(
-                '[[distance]] <= :range',
-                [':range' => $this->options['range']]
-            );
+            $condition = '[[distance]] IS NOT NULL';
+            $params = [];
+        }
+
+        // Filter based on database type
+        if (Craft::$app->getDb()->getIsMysql()) {
+            // MySQL
+            $this->query->subQuery->having($condition, $params);
+        } else {
+            // Postgres
+            $this->query->subQuery->andWhere($condition, $params);
         }
 
     }

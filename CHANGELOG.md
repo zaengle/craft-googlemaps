@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+> [!WARNING]
+> The default proximity search [`range`](https://plugins.doublesecretagency.com/google-maps/proximity-search/options/#range) has been changed from `500` to `null` (no distance limit). Proximity searches relying on the default value might now include additional results. If a maximum `range` is required, specify it manually.
+
+### Changed
+- Dropped the default `range` value. ([#68](https://github.com/doublesecretagency/craft-googlemaps/issues/68))
+
 ## 5.0.0-beta.2 - 2024-03-28
 
 ### Added
