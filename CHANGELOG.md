@@ -7,6 +7,7 @@
 
 ### Changed
 - Dropped the default `range` value. ([#68](https://github.com/doublesecretagency/craft-googlemaps/issues/68))
+- Requires non-beta version of Craft 5.
 
 ## 5.0.0-beta.2 - 2024-03-28
 
