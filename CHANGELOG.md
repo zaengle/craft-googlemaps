@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Fixed utility icons.
+
 ## 5.0.1 - 2024-04-12
 
 ### Fixed

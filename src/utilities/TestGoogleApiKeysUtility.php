@@ -41,18 +41,18 @@ class TestGoogleApiKeysUtility extends Utility
     /**
      * @inheritdoc
      */
-    public static function iconPath(): ?string
+    public static function icon(): ?string
     {
         // Set the icon mask path
-        $iconPath = Craft::getAlias('@vendor/doublesecretagency/craft-googlemaps/src/icon-mask-keys.svg');
+        $icon = Craft::getAlias('@vendor/doublesecretagency/craft-googlemaps/src/icon-mask-keys.svg');
 
         // If not a string, bail
-        if (!is_string($iconPath)) {
+        if (!is_string($icon)) {
             return null;
         }
 
         // Return the icon mask path
-        return $iconPath;
+        return $icon;
     }
 
     /**
