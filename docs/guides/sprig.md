@@ -58,11 +58,8 @@ Once you have copied the `proximity-search.twig` file locally, you are free to m
 Now that you have a copy of the `proximity-search` component, here's how to use it in a template...
 
 ```twig
-{# Dynamically inject Sprig component #}
+{# Load the Sprig component #}
 {{ sprig('_components/proximity-search') }}
-
-{# Load required Sprig scripts #}
-{{ sprig.script }}
 ```
 
 ## Additional Information
