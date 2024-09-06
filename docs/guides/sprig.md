@@ -76,9 +76,10 @@ It is important that the map ID in the [`googleMaps.init` method](/javascript/go
 
 {# When the map is reloaded by Sprig #}
 {% if sprig.isRequest %}
-    <script>
+    {% set js %}
         googleMaps.init('my-sprig-map');
-    </script>
+    {% endset %}
+    {% do sprig.registerJs(js) %}
 {% endif %}
 ```
 
@@ -90,11 +91,12 @@ The `init` method also allows for an optional [callback method](/javascript/goog
 
 ```twig
 {% if sprig.isRequest %}
-    <script>
+    {% set js %}
         googleMaps.init('my-sprig-map', function () {
             console.log("The map has finished loading!");
         });
-    </script>
+    {% endset %}
+    {% do sprig.registerJs(js) %}
 {% endif %}
 ```
 
