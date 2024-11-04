@@ -33,6 +33,9 @@
     "require": {
         "craftcms/cms": "^5.0.0"
     },
+    "require-dev": {
+        "craftcms/wp-import": "dev-main"
+    },
     "replace": {
         "doublesecretagency/craft-smartmap":"3.*"
     },

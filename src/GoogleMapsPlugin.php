@@ -28,6 +28,8 @@ use craft\services\Fields;
 use craft\services\Plugins;
 use craft\services\ProjectConfig;
 use craft\services\Utilities;
+use craft\wpimport\Command as WpImportCommand;
+use doublesecretagency\googlemaps\acfadapters\GoogleMap as GoogleMapAcfAdapter;
 use doublesecretagency\googlemaps\exporters\AddressesCondensedExporter;
 use doublesecretagency\googlemaps\exporters\AddressesExpandedExporter;
 use doublesecretagency\googlemaps\fields\AddressField;
@@ -100,6 +102,7 @@ class GoogleMapsPlugin extends Plugin
         $this->_registerFieldType();
         $this->_registerCompatibleFieldTypes();
         $this->_registerExporters();
+        $this->_registerAcfAdapter();
 
         // Manage conversions of the Address field
         $this->_manageFieldTypeConversions();
@@ -195,6 +198,26 @@ class GoogleMapsPlugin extends Plugin
             static function (RegisterElementExportersEvent $event) {
                 $event->exporters[] = AddressesCondensedExporter::class;
                 $event->exporters[] = AddressesExpandedExporter::class;
+            }
+        );
+    }
+
+    /**
+     * Register the ACF adapter for wp-import.
+     *
+     * @return void
+     */
+    private function _registerAcfAdapter(): void
+    {
+        if (!class_exists(WpImportCommand::class)) {
+            return;
+        }
+
+        Event::on(
+            WpImportCommand::class,
+            WpImportCommand::EVENT_REGISTER_ACF_ADAPTERS,
+            static function (RegisterComponentTypesEvent $event) {
+                $event->types[] = GoogleMapAcfAdapter::class;
             }
         );
     }
