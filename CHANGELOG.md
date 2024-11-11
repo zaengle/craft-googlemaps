@@ -1,5 +1,10 @@
 # Changelog
 
+## 5.0.3 - 2024-11-11
+
+### Added
+- Added an ACF adapter for Google Map fields. (thanks @brandonkelly)
+
 ## 5.0.2 - 2024-04-12
 
 ### Fixed
