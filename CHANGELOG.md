@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- [Multisite support](https://plugins.doublesecretagency.com/google-maps/address-field/multisite-support/). ([#11](https://github.com/doublesecretagency/craft-googlemaps/issues/11))
+
 ## 5.0.3 - 2024-11-11
 
 ### Added

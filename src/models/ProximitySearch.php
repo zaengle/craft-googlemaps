@@ -63,9 +63,9 @@ class ProximitySearch extends Model
         }
 
         // Join with plugin table
-        $this->query->subQuery->innerJoin(
+        $this->query->subQuery->leftJoin(
             '{{%googlemaps_addresses}} gm_addresses',
-            '[[gm_addresses.elementId]] = [[elements.id]] AND [[gm_addresses.fieldId]] = :fieldId',
+            '[[gm_addresses.elementId]] = [[elements.id]] AND [[gm_addresses.siteId]] = [[elements_sites.siteId]] AND [[gm_addresses.fieldId]] = :fieldId',
             [':fieldId' => $this->field->id]
         );
 
