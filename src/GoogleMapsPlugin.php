@@ -17,7 +17,6 @@ use craft\base\Field;
 use craft\base\Model;
 use craft\base\Plugin;
 use craft\elements\Entry;
-use craft\events\ConfigEvent;
 use craft\events\DefineCompatibleFieldTypesEvent;
 use craft\events\ModelEvent;
 use craft\events\PluginEvent;
@@ -26,13 +25,13 @@ use craft\events\RegisterElementExportersEvent;
 use craft\helpers\UrlHelper;
 use craft\services\Fields;
 use craft\services\Plugins;
-use craft\services\ProjectConfig;
 use craft\services\Utilities;
 use craft\wpimport\Command as WpImportCommand;
 use doublesecretagency\googlemaps\acfadapters\GoogleMap as GoogleMapAcfAdapter;
 use doublesecretagency\googlemaps\exporters\AddressesCondensedExporter;
 use doublesecretagency\googlemaps\exporters\AddressesExpandedExporter;
 use doublesecretagency\googlemaps\fields\AddressField;
+use doublesecretagency\googlemaps\helpers\FieldConversionHelper;
 use doublesecretagency\googlemaps\models\Settings;
 use doublesecretagency\googlemaps\utilities\TestAddressLookupUtility;
 use doublesecretagency\googlemaps\utilities\TestGoogleApiKeysUtility;
@@ -171,16 +170,33 @@ class GoogleMapsPlugin extends Plugin
         if (!class_exists(DefineCompatibleFieldTypesEvent::class)) {
             return;
         }
+
         // Mark fields as compatible
         Event::on(
             Fields::class,
             Fields::EVENT_DEFINE_COMPATIBLE_FIELD_TYPES,
             static function (DefineCompatibleFieldTypesEvent $event) {
-                // If it's a Mapbox field
-                if (is_a($event->field, 'doublesecretagency\mapbox\fields\AddressField')) {
-                    // Tell it that the Google Maps field is compatible
+
+                // Get the field's class
+                $fieldClass = get_class($event->field);
+
+                // By default, whitelist the "Address (Mapbox)" field as compatible
+                $compatible = [
+                    'doublesecretagency\mapbox\fields\AddressField',
+                ];
+
+                // If able to transfer data between field types (requires Craft 5.5.3+)
+                if (version_compare(Craft::$app->getVersion(), '5.5.3', '>=')) {
+                    // Whitelist the Ether "Map" field as compatible
+                    $compatible[] = 'ether\simplemap\fields\MapField';
+                }
+
+                // If it's a compatible field
+                if (in_array($fieldClass, $compatible, true)) {
+                    // Update event to mark the "Address (Google Maps)" field as compatible
                     $event->compatibleTypes[] = AddressField::class;
                 }
+
             }
         );
     }
@@ -240,81 +256,14 @@ class GoogleMapsPlugin extends Plugin
     // ========================================================================= //
 
     /**
-     * Manage conversions of the Address field from the Mapbox plugin.
+     * Manage conversions of the Address field from other plugins.
      *
      * @return void
      */
     private function _manageFieldTypeConversions(): void
     {
-        // If Mapbox plugin is not installed and enabled, bail
-        if (!Craft::$app->getPlugins()->isPluginEnabled('mapbox')) {
-            return;
-        }
-
-        // When a single project config line gets updated
-        Event::on(
-            ProjectConfig::class,
-            ProjectConfig::EVENT_UPDATE_ITEM,
-            static function (ConfigEvent $event) {
-
-                // Get old and new types
-                $oldType = $event->oldValue['type'] ?? null;
-                $newType = $event->newValue['type'] ?? null;
-
-                // If old type wasn't a Mapbox Address field, bail
-                if (!($oldType === 'doublesecretagency\mapbox\fields\AddressField')) {
-                    return;
-                }
-
-                // If new type is not a Google Maps Address field, bail
-                if (!($newType === 'doublesecretagency\googlemaps\fields\AddressField')) {
-                    return;
-                }
-
-                // Get the field's UID
-                $uid = str_replace('fields.', '', $event->path);
-
-                // Get the actual field
-                $field = Craft::$app->getFields()->getFieldByUid($uid);
-
-                // If unable to get the field, bail
-                if (!$field) {
-                    return;
-                }
-
-                // List of columns to copy between tables
-                $columns = [
-                    'elementId', 'siteId', 'fieldId',
-                    'formatted', 'raw',
-                    'name', 'street1', 'street2',
-                    'city', 'state', 'zip',
-                    'county', 'country',
-                    'lat', 'lng', 'zoom',
-                    'dateCreated', 'dateUpdated', 'uid'
-                ];
-
-                // Merge and escape column names
-                $columns = '[['.implode(']],[[', $columns).']]';
-
-                // Copy field's rows from `mapbox_addresses` into `googlemaps_addresses`
-                $sql = "
-INSERT INTO [[googlemaps_addresses]] ({$columns})
-SELECT {$columns}
-FROM [[mapbox_addresses]]
-WHERE [[fieldId]] = :fieldId
-  AND NOT EXISTS (
-    SELECT 1
-    FROM [[googlemaps_addresses]]
-    WHERE [[googlemaps_addresses]].[[uid]] = [[mapbox_addresses]].[[uid]]
-)";
-
-                // Execute the SQL statement
-                \Yii::$app->db->createCommand($sql)
-                    ->bindValues([':fieldId' => $field->id])
-                    ->execute();
-
-            }
-        );
+        FieldConversionHelper::convertMapboxFields();
+        FieldConversionHelper::convertMapsFields();
     }
 
     // ========================================================================= //
