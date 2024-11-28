@@ -170,6 +170,14 @@ class AddressField extends Field implements PreviewableFieldInterface
         ];
     }
 
+    /**
+     * @inheritdoc
+     */
+    public static function dbType(): array|string|null
+    {
+        return null;
+    }
+
     // ========================================================================= //
 
     /**
@@ -189,19 +197,10 @@ class AddressField extends Field implements PreviewableFieldInterface
             return;
         }
 
-        // Get site ID
-        if (!Craft::$app->getIsMultiSite()) {
-            // Use the primary site ID
-            $siteId = Craft::$app->getSites()->getPrimarySite()->id;
-        } else {
-            // Use the current site ID
-            $siteId = $element->getSite()->id;
-        }
-
         // Attempt to load an existing record
         $record = AddressRecord::findOne([
             'elementId' => $element->id,
-            'siteId'    => $siteId,
+            'siteId'    => $element->siteId,
             'fieldId'   => $this->id,
         ]);
 
@@ -209,7 +208,7 @@ class AddressField extends Field implements PreviewableFieldInterface
         if (!$record) {
             $record = new AddressRecord([
                 'elementId' => $element->id,
-                'siteId'    => $siteId,
+                'siteId'    => $element->siteId,
                 'fieldId'   => $this->id,
             ]);
         }
@@ -254,8 +253,9 @@ class AddressField extends Field implements PreviewableFieldInterface
         // If value is an array, load it directly into an Address model
         if (is_array($value)) {
             // Get IDs
-            $elementId = ($value['elementId'] ?? $element->id ?? null);
-            $fieldId   = ($value['fieldId']   ?? $this->id    ?? null);
+            $elementId = ($value['elementId'] ?? $element->id     ?? null);
+            $siteId    = ($value['siteId']    ?? $element->siteId ?? null);
+            $fieldId   = ($value['fieldId']   ?? $this->id        ?? null);
             // Get coordinates
             $lat  = ($value['lat']  ?? null);
             $lng  = ($value['lng']  ?? null);
@@ -263,7 +263,7 @@ class AddressField extends Field implements PreviewableFieldInterface
             // Return Address model
             return new AddressModel([
                 'elementId'    => (int) $elementId,
-                'siteId'       => (int) ($value['siteId'] ?? null),
+                'siteId'       => (int) $siteId,
                 'fieldId'      => (int) $fieldId,
                 'formatted'    => ($value['formatted']    ?? null),
                 'raw'          => ($value['raw']          ?? null),
@@ -290,20 +290,11 @@ class AddressField extends Field implements PreviewableFieldInterface
             return null;
         }
 
-        // Get site ID
-        if (!Craft::$app->getIsMultiSite()) {
-            // Use the primary site ID
-            $siteId = Craft::$app->getSites()->getPrimarySite()->id;
-        } else {
-            // Use the current site ID
-            $siteId = $element->getSite()->id;
-        }
-
         // Attempt to load existing record
         $record = AddressRecord::findOne([
             'elementId' => $element->id,
-            'siteId' => $siteId,
-            'fieldId' => $this->id,
+            'siteId'    => $element->siteId,
+            'fieldId'   => $this->id,
         ]);
 
         // If no matching record exists, bail

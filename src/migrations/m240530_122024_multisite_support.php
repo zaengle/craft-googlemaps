@@ -22,6 +22,7 @@ use craft\i18n\Translation;
 use doublesecretagency\googlemaps\fields\AddressField;
 use Exception;
 use ReflectionClass;
+use Yii;
 use yii\base\NotSupportedException;
 
 /**
@@ -172,8 +173,8 @@ class m240530_122024_multisite_support extends Migration
     {
         // Get all element sites with content containing this field layout element
         $elementSites = (new Query())
-            ->select('[[elementId]], [[siteId]], [[content]], [[dateCreated]], [[dateUpdated]]')
-            ->from(['elements_sites' => Table::ELEMENTS_SITES])
+            ->select('[[id]], [[elementId]], [[siteId]], [[content]], [[dateCreated]], [[dateUpdated]]')
+            ->from([Table::ELEMENTS_SITES])
             ->where(['like', '[[content]]', $fieldLayoutElementUid])
             ->all();
 
@@ -205,8 +206,8 @@ class m240530_122024_multisite_support extends Migration
             // Get current time as a fallback
             $now = DateTimeHelper::currentUTCDateTime()->format('Y-m-d H:i:s');
 
-            // Add the Address data to the batch
-            $rows[] = [
+            // Configure the Address data
+            $gmAddress = [
                 'elementId'    => (int) $elementSite['elementId'],
                 'siteId'       => (int) $elementSite['siteId'],
                 'fieldId'      => (int) $content['fieldId'],
@@ -231,6 +232,27 @@ class m240530_122024_multisite_support extends Migration
                 'uid'          => StringHelper::UUID(), // Generate new UUID
             ];
 
+            // Add the Address data to the batch
+            $rows[] = $gmAddress;
+
+            // Update the content with the new Address data
+            $elementSiteContent[$fieldLayoutElementUid] = $gmAddress;
+
+            try {
+                // Update the element site with the new content
+                Yii::$app->db
+                    ->createCommand()
+                    ->update(
+                        Table::ELEMENTS_SITES,
+                        ['content' => $elementSiteContent],
+                        ['id' => $elementSite['id']]
+                    )
+                    ->execute();
+            } catch (Exception $e) {
+                // Log error
+                $error = $e->getMessage();
+                Craft::error("Error updating element site [{$elementSite['id']}]: {$error}");
+            }
         }
 
         // If no rows to insert, bail
