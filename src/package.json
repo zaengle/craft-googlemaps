@@ -5,7 +5,7 @@
     "cross-env": "^7.0",
     "laravel-mix": "^6.0",
     "pinia": "^2.0",
-    "resolve-url-loader": "^4.0",
+    "resolve-url-loader": "^5.0",
     "sass": "^1.43",
     "sass-loader": "^12.3",
     "sortablejs": "^1.14",
